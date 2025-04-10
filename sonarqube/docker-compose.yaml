@@ -1,0 +1,78 @@
+# docker-compose.yml for SonarQube with PostgreSQL
+
+version: '3.8'
+
+services:
+  sonarqube:
+    image: sonarqube:lts-community # Official Community Edition (Long Term Support)
+    container_name: sonarqube
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy # Wait until the DB service reports healthy
+    ports:
+      # Map host port 9000 to container port 9000
+      # For better security when using a reverse proxy, bind only to localhost:
+      # - "127.0.0.1:9000:9000"
+      # If Nginx runs on the host, 127.0.0.1 is preferred.
+      # If Nginx runs as another container, they need a shared network and this port map might not be needed.
+      - "9000:9000"
+    environment:
+      # Database connection details (must match 'db' service credentials)
+      - SONAR_JDBC_URL=jdbc:postgresql://db:5432/sonar
+      - SONAR_JDBC_USERNAME=sonaruser
+      # --- CHANGE THIS PASSWORD ---
+      - SONAR_JDBC_PASSWORD=sonarpass
+      # Optional: JVM memory settings (adjust based on available RAM and load)
+      # These can often be tuned later via SonarQube UI/properties if needed
+      # - sonar.web.javaOpts=-Xmx1G -Xms512m -XX:+HeapDumpOnOutOfMemoryError
+      # - sonar.search.javaOpts=-Xmx1G -Xms512m -XX:+HeapDumpOnOutOfMemoryError
+      # - sonar.ce.javaOpts=-Xmx1G -Xms512m -XX:+HeapDumpOnOutOfMemoryError
+      - TZ=Asia/Kolkata # Set your timezone
+    volumes:
+      # Named volumes for persistence (Docker manages these)
+      - sonarqube_conf:/opt/sonarqube/conf
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+      # Optional: Mount custom plugins if needed
+      # - ./my-custom-plugins:/opt/sonarqube/extensions/plugins
+    ulimits: # Required kernel settings for Elasticsearch component
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 4096
+        hard: 4096
+
+  db:
+    image: postgres:15 # Use a specific supported PostgreSQL version (check SonarQube docs for compatibility)
+    container_name: sonarqube_db
+    restart: unless-stopped
+    environment:
+      # --- MUST MATCH SonarQube JDBC settings ---
+      - POSTGRES_USER=sonaruser
+      # --- CHANGE THIS PASSWORD ---
+      - POSTGRES_PASSWORD=sonarpass
+      - POSTGRES_DB=sonar
+      - TZ=Asia/Kolkata # Set your timezone
+      # Optional: PGDATA allows specifying data directory inside volume if needed
+      # - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      # Named volume for PostgreSQL data persistence
+      - postgresql_data:/var/lib/postgresql/data
+    healthcheck:
+      # Checks if Postgres is ready to accept connections
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s # Give Postgres some time to start before checking
+
+# Declare named volumes
+volumes:
+  sonarqube_conf: {}
+  sonarqube_data: {}
+  sonarqube_extensions: {}
+  sonarqube_logs: {}
+  postgresql_data: {}
